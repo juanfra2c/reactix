@@ -61,21 +61,19 @@ dependencies {
     implementation ("androidx.compose.ui:ui-tooling-preview")
     implementation ("androidx.compose.material3:material3")
     implementation ("androidx.activity:activity-compose:1.9.3")
-
+    implementation ("androidx.compose.foundation:foundation")
     implementation ("androidx.navigation:navigation-compose:2.8.5")
-
+    implementation ("com.google.android.gms:play-services-tasks:18.2.0")
     implementation ("androidx.lifecycle:lifecycle-runtime-compose:2.8.7")
     implementation ("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.7")
-
+// Play Games Services v2
+    implementation("com.google.android.gms:play-services-games-v2:19.0.0")
     // DataStore
     implementation ("androidx.datastore:datastore-preferences:1.1.2")
 
     // Coroutines
     implementation ("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
 
-    // Play Games Services (v2)
-    // Nota: puede variar según tu setup. Si te da problemas de versión, me pasas tu gradle y lo ajusto.
-    implementation ("com.google.android.gms:play-services-games-v2:20.0.1")
 
     // OPTIONAL: AdMob (si quieres integrarlo ya aquí; si no, lo dejamos stub)
     // implementation "com.google.android.gms:play-services-ads:23.6.0"
