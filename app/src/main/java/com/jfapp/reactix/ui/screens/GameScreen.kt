@@ -12,7 +12,11 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.dp
@@ -20,15 +24,14 @@ import com.jfapp.reactix.game.Challenge
 import com.jfapp.reactix.game.GameMode
 import com.jfapp.reactix.viewmodel.AppViewModel
 import com.jfapp.reactix.viewmodel.GameViewModel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlin.math.abs
-import kotlin.math.hypot
-import kotlin.math.min
-import androidx.compose.ui.graphics.drawscope.DrawScope
 import kotlin.math.atan2
 import kotlin.math.cos
+import kotlin.math.hypot
+import kotlin.math.min
 import kotlin.math.sin
-import kotlinx.coroutines.delay
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -41,10 +44,12 @@ fun GameScreen(
 ) {
     val gameMode = if (mode == "daily") GameMode.DAILY else GameMode.CLASSIC
     val state by gameVm.state.collectAsState()
-    var inputEnabled by remember { mutableStateOf(false) }
-    var countdown by remember { mutableStateOf<Int?>(null) } // 3,2,1,0 (GO), null = oculto
 
-    // Flash feedback (verde/rojo) local (sin tocar engine)
+    // Countdown + input lock
+    var inputEnabled by remember { mutableStateOf(false) }
+    var countdown by remember { mutableStateOf<Int?>(null) } // 3,2,1,0(GO), null
+
+    // Flash feedback (local)
     val flashAlpha = remember { Animatable(0f) }
     val scope = rememberCoroutineScope()
     var flashColor by remember { mutableStateOf(Color.Transparent) }
@@ -96,7 +101,7 @@ fun GameScreen(
 
             val chTop = state.currentChallenge
 
-            // CHIP: dentro del área del juego, centrado, sin mezclarse con el texto
+            // Chip solo para TapColor
             if (chTop is Challenge.TapColor) {
                 TargetChip(
                     target = chTop.target,
@@ -106,26 +111,33 @@ fun GameScreen(
                 )
             }
 
+            // Overlay texto para TapTimes: x2 / x3 encima del círculo central
+            if (chTop is Challenge.TapTimes) {
+                Box(
+                    modifier = Modifier.matchParentSize(),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = "x${chTop.times}",
+                        style = MaterialTheme.typography.displayMedium
+                    )
+                }
+            }
+
             Canvas(
                 modifier = Modifier
                     .fillMaxSize()
 
                     // SWIPE (robusto: acumulamos y decidimos al soltar)
-                    .pointerInput(inputEnabled,Unit) {
+                    .pointerInput(inputEnabled, Unit) {
                         if (!inputEnabled) return@pointerInput
 
                         var totalDx = 0f
                         var totalDy = 0f
 
                         detectDragGestures(
-                            onDragStart = {
-                                totalDx = 0f
-                                totalDy = 0f
-                            },
-                            onDragCancel = {
-                                totalDx = 0f
-                                totalDy = 0f
-                            },
+                            onDragStart = { totalDx = 0f; totalDy = 0f },
+                            onDragCancel = { totalDx = 0f; totalDy = 0f },
                             onDragEnd = {
                                 val threshold = 80f
                                 if (hypot(totalDx, totalDy) >= threshold) {
@@ -135,9 +147,6 @@ fun GameScreen(
                                         if (totalDy > 0) Challenge.SwipeDir.DOWN else Challenge.SwipeDir.UP
                                     }
                                     gameVm.swipe(dir)
-
-                                    // feedback neutro (pequeño flash blanco) opcional
-                                    // (lo quitamos para no interferir)
                                 }
                                 totalDx = 0f
                                 totalDy = 0f
@@ -149,13 +158,14 @@ fun GameScreen(
                         }
                     }
 
-                    // TAP (hit test en círculos si TapColor)
-                    .pointerInput(inputEnabled,state.currentChallenge, state.tapColorDots) {
+                    // TAP (TapColor hit test + TapTimes círculo central + DontTap penaliza)
+                    .pointerInput(inputEnabled, state.currentChallenge, state.tapColorDots, state.tapTimesProgress) {
                         if (!inputEnabled) return@pointerInput
+
                         detectTapGestures { offset ->
                             val ch = state.currentChallenge
 
-                            // TapColor: hit-test círculos
+                            // --- TapColor: hit-test círculos ---
                             if (ch is Challenge.TapColor && state.tapColorDots.isNotEmpty()) {
                                 val w = size.width
                                 val h = size.height
@@ -170,48 +180,76 @@ fun GameScreen(
                                 }
 
                                 if (hit != null) {
-                                    // ✅ feedback local: verde si acierta, rojo si falla
                                     val ok = (hit.color == ch.target)
                                     flashColor = if (ok) Color(0xFF27AE60) else Color(0xFFEB5757)
 
-                                    // Lanzamos flash rápido
-                                    // (no bloquea el tap)
-                                    // Nota: Animatable en coroutines
-                                    // usamos LaunchedEffect manual con rememberCoroutineScope
-                                    // (ver abajo)
                                     gameVm.tap(hit.color)
                                     scope.launch {
-                                        flashAlpha.snapTo(0.28f)
-                                        flashAlpha.animateTo(0f, tween(180))
+                                        flashAlpha.snapTo(0.22f)
+                                        flashAlpha.animateTo(0f, tween(160))
                                     }
                                 } else {
                                     flashColor = Color(0xFFEB5757)
                                     gameVm.tap(null)
                                     scope.launch {
-                                        flashAlpha.snapTo(0.28f)
-                                        flashAlpha.animateTo(0f, tween(180))
+                                        flashAlpha.snapTo(0.18f)
+                                        flashAlpha.animateTo(0f, tween(140))
                                     }
                                 }
                                 return@detectTapGestures
                             }
 
-                            // Otros retos: tap normal + flash suave (blanco)
+                            // --- TapTimes: SOLO cuenta si tocas el círculo central ---
+                            if (ch is Challenge.TapTimes) {
+                                val w = size.width
+                                val h = size.height
+                                val center = Offset(w / 2f, h / 2f)
+                                val radius = min(w, h) * 0.14f
+
+                                val dx = offset.x - center.x
+                                val dy = offset.y - center.y
+                                val inside = (dx * dx + dy * dy) <= radius * radius
+
+                                if (inside) {
+                                    flashColor = Color.White.copy(alpha = 0.9f)
+                                    gameVm.tap(null)
+                                    scope.launch {
+                                        flashAlpha.snapTo(0.10f)
+                                        flashAlpha.animateTo(0f, tween(110))
+                                    }
+                                }
+                                // fuera: ignoramos (no cuenta)
+                                return@detectTapGestures
+                            }
+
+                            // --- DontTap: cualquier tap penaliza (engine decide) ---
+                            if (ch is Challenge.DontTap) {
+                                flashColor = Color(0xFFEB5757)
+                                gameVm.tap(null)
+                                scope.launch {
+                                    flashAlpha.snapTo(0.18f)
+                                    flashAlpha.animateTo(0f, tween(140))
+                                }
+                                return@detectTapGestures
+                            }
+
+                            // Otros: tap normal + flash suave
                             flashColor = Color.White.copy(alpha = 0.8f)
                             gameVm.tap(null)
                             scope.launch {
-                                flashAlpha.snapTo(0.28f)
-                                flashAlpha.animateTo(0f, tween(180))
+                                flashAlpha.snapTo(0.08f)
+                                flashAlpha.animateTo(0f, tween(90))
                             }
                         }
                     }
             ) {
-                val center = Offset(size.width / 2f, size.height / 2f)
+                val w = size.width
+                val h = size.height
+                val center = Offset(w / 2f, h / 2f)
 
                 when (val ch = state.currentChallenge) {
 
                     is Challenge.TapColor -> {
-                        val w = size.width
-                        val h = size.height
                         val radius = min(w, h) * 0.09f
 
                         state.tapColorDots.forEach { dot ->
@@ -224,16 +262,14 @@ fun GameScreen(
                                 Challenge.TargetColor.YELLOW -> Color(0xFFF2C94C)
                             }
 
-                            // ✅ Todos iguales: no revelamos el target
+                            // Todos iguales (no revelamos target)
                             val alpha = 0.80f
 
-                            // outer ring (igual para todos)
                             drawCircle(
                                 color = Color.White.copy(alpha = 0.18f),
                                 radius = radius + 6f,
                                 center = Offset(cx, cy)
                             )
-                            // inner circle
                             drawCircle(
                                 color = base.copy(alpha = alpha),
                                 radius = radius,
@@ -243,14 +279,40 @@ fun GameScreen(
                     }
 
                     is Challenge.DontTap -> {
+                        // Círculo + X grande
+                        val radius = min(w, h) * 0.16f
+
                         drawCircle(
-                            color = Color.White.copy(alpha = 0.14f),
-                            radius = size.minDimension * 0.33f,
+                            color = Color.White.copy(alpha = 0.10f),
+                            radius = radius,
                             center = center
+                        )
+                        drawCircle(
+                            color = Color.White.copy(alpha = 0.22f),
+                            radius = radius + 6f,
+                            center = center,
+                            style = Stroke(width = 10f, cap = StrokeCap.Round)
+                        )
+
+                        val xLen = radius * 0.65f
+                        drawLine(
+                            color = Color.White.copy(alpha = 0.55f),
+                            start = Offset(center.x - xLen, center.y - xLen),
+                            end = Offset(center.x + xLen, center.y + xLen),
+                            strokeWidth = 12f,
+                            cap = StrokeCap.Round
+                        )
+                        drawLine(
+                            color = Color.White.copy(alpha = 0.55f),
+                            start = Offset(center.x - xLen, center.y + xLen),
+                            end = Offset(center.x + xLen, center.y - xLen),
+                            strokeWidth = 12f,
+                            cap = StrokeCap.Round
                         )
                     }
 
                     is Challenge.Swipe -> {
+                        // Flecha doble (ya la tenías)
                         val len = size.minDimension * 0.22f
                         val start = center
 
@@ -261,16 +323,14 @@ fun GameScreen(
                             Challenge.SwipeDir.RIGHT -> Offset(center.x + len, center.y)
                         }
 
-                        val stroke = 14f
-                        val headLen = 42f
-
                         drawArrow(
                             start = start,
                             end = end,
                             color = Color.White.copy(alpha = 0.75f),
-                            strokeWidth = stroke,
-                            headLength = headLen
+                            strokeWidth = 14f,
+                            headLength = 42f
                         )
+
                         val end2 = Offset(
                             x = start.x + (end.x - start.x) * 0.75f,
                             y = start.y + (end.y - start.y) * 0.75f
@@ -286,35 +346,51 @@ fun GameScreen(
                     }
 
                     is Challenge.TapTimes -> {
-                        val n = ch.times
-                        val gap = 46f
-                        val startX = center.x - (gap * (n - 1) / 2f)
-                        for (i in 0 until n) {
-                            drawCircle(
-                                color = Color.White.copy(alpha = if (i < state.tapTimesProgress) 0.55f else 0.18f),
-                                radius = 16f,
-                                center = Offset(startX + i * gap, center.y)
-                            )
-                        }
+                        // Círculo central + anillo de progreso (en vez de puntos)
+                        val radius = min(w, h) * 0.14f
+
+                        drawCircle(
+                            color = Color.White.copy(alpha = 0.10f),
+                            radius = radius,
+                            center = center
+                        )
+                        drawCircle(
+                            color = Color.White.copy(alpha = 0.22f),
+                            radius = radius + 6f,
+                            center = center,
+                            style = Stroke(width = 10f, cap = StrokeCap.Round)
+                        )
+
+                        val progress = (state.tapTimesProgress.toFloat() / ch.times.toFloat())
+                            .coerceIn(0f, 1f)
+
+                        drawArc(
+                            color = Color.White.copy(alpha = 0.55f),
+                            startAngle = -90f,
+                            sweepAngle = 360f * progress,
+                            useCenter = false,
+                            topLeft = Offset(center.x - (radius + 14f), center.y - (radius + 14f)),
+                            size = Size((radius + 14f) * 2f, (radius + 14f) * 2f),
+                            style = Stroke(width = 12f, cap = StrokeCap.Round)
+                        )
                     }
 
                     null -> Unit
                 }
             }
+
+            // Countdown overlay
             if (countdown != null) {
                 Box(
-                    modifier = Modifier
-                        .matchParentSize(),
+                    modifier = Modifier.matchParentSize(),
                     contentAlignment = Alignment.Center
                 ) {
                     val text = if (countdown == 0) "GO" else countdown.toString()
-                    Text(
-                        text = text,
-                        style = MaterialTheme.typography.displayLarge
-                    )
+                    Text(text = text, style = MaterialTheme.typography.displayLarge)
                 }
             }
-            // FLASH OVERLAY (feedback)
+
+            // Flash overlay
             if (flashAlpha.value > 0f) {
                 Box(
                     modifier = Modifier
@@ -324,8 +400,8 @@ fun GameScreen(
                 )
             }
 
-            // Texto mínimo: solo para retos NO TapColor (para que no se mezcle con el chip)
-            if (chTop !is Challenge.TapColor) {
+            // Texto mínimo: solo para retos que NO sean TapColor ni TapTimes (para no mezclar con chip/x2)
+            if (chTop !is Challenge.TapColor && chTop !is Challenge.TapTimes) {
                 Column(
                     modifier = Modifier
                         .align(Alignment.TopCenter)
@@ -382,8 +458,7 @@ private fun instructionText(state: com.jfapp.reactix.game.GameState): String {
 }
 
 @Composable
-private fun hintText(): String =
-    "Tap • Swipe"
+private fun hintText(): String = "Tap • Swipe"
 
 private fun DrawScope.drawArrow(
     start: Offset,
@@ -398,7 +473,8 @@ private fun DrawScope.drawArrow(
         color = color,
         start = start,
         end = end,
-        strokeWidth = strokeWidth
+        strokeWidth = strokeWidth,
+        cap = StrokeCap.Round
     )
 
     val angle = atan2(end.y - start.y, end.x - start.x)
@@ -414,12 +490,14 @@ private fun DrawScope.drawArrow(
         color = color,
         start = end,
         end = Offset(x1, y1),
-        strokeWidth = strokeWidth
+        strokeWidth = strokeWidth,
+        cap = StrokeCap.Round
     )
     drawLine(
         color = color,
         start = end,
         end = Offset(x2, y2),
-        strokeWidth = strokeWidth
+        strokeWidth = strokeWidth,
+        cap = StrokeCap.Round
     )
 }
