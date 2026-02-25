@@ -1,7 +1,9 @@
 package com.jfapp.reactix.game
 
+import kotlin.collections.get
 import kotlin.math.max
 import kotlin.random.Random
+import kotlin.times
 
 class GameEngine {
 
@@ -107,15 +109,19 @@ class GameEngine {
         val endsAt = nowMs + challengeMs
 
         return when (ch) {
-            is Challenge.TapColor -> state.copy(
-                currentChallenge = ch,
-                challengeEndsAtMs = endsAt,
-                expectsNoTap = false,
-                expectsTapColor = ch.target,
-                expectsSwipe = null,
-                expectsTapTimes = 0,
-                tapTimesProgress = 0,
-            )
+            is Challenge.TapColor -> {
+                val dots = generateDots()
+                state.copy(
+                    currentChallenge = ch,
+                    challengeEndsAtMs = endsAt,
+                    expectsNoTap = false,
+                    expectsTapColor = ch.target,
+                    expectsSwipe = null,
+                    expectsTapTimes = 0,
+                    tapTimesProgress = 0,
+                    tapColorDots = dots
+                )
+            }
 
             is Challenge.DontTap -> state.copy(
                 currentChallenge = ch,
@@ -125,6 +131,7 @@ class GameEngine {
                 expectsSwipe = null,
                 expectsTapTimes = 0,
                 tapTimesProgress = 0,
+                tapColorDots = emptyList()
             )
 
             is Challenge.Swipe -> state.copy(
@@ -135,6 +142,7 @@ class GameEngine {
                 expectsSwipe = ch.dir,
                 expectsTapTimes = 0,
                 tapTimesProgress = 0,
+                tapColorDots = emptyList()
             )
 
             is Challenge.TapTimes -> state.copy(
@@ -145,11 +153,48 @@ class GameEngine {
                 expectsSwipe = null,
                 expectsTapTimes = ch.times,
                 tapTimesProgress = 0,
+                tapColorDots = emptyList()
             )
         }
     }
 
     private fun nowMs(): Long = System.currentTimeMillis()
+
+    private fun generateDots(): List<ColorDot> {
+        val colors = listOf(
+            Challenge.TargetColor.BLUE,
+            Challenge.TargetColor.GREEN,
+            Challenge.TargetColor.YELLOW
+        ).shuffled(rng)
+
+        // Zona segura (evita bordes y HUD superior)
+        fun randPos(): Pair<Float, Float> {
+            val x = 0.18f + rng.nextFloat() * 0.64f
+            val y = 0.32f + rng.nextFloat() * 0.46f
+            return x to y
+        }
+
+        val positions = mutableListOf<Pair<Float, Float>>()
+        val minDist = 0.24f // evita solapes
+
+        repeat(3) { i ->
+            var p: Pair<Float, Float>
+            var tries = 0
+            do {
+                p = randPos()
+                tries++
+            } while (tries < 40 && positions.any { (x, y) ->
+                    val dx = x - p.first
+                    val dy = y - p.second
+                    (dx * dx + dy * dy) < (minDist * minDist)
+                })
+            positions.add(p)
+        }
+
+        return (0 until 3).map { i ->
+            ColorDot(color = colors[i], nx = positions[i].first, ny = positions[i].second)
+        }
+    }
 }
 
 enum class BoostType {
@@ -157,3 +202,4 @@ enum class BoostType {
     DOUBLE_COINS_THIS_RUN,
     SHIELD_ONE_FAIL
 }
+

@@ -8,6 +8,7 @@ data class GameState(
     val combo: Int = 0,
     val coinsEarned: Int = 0,
     val xpEarned: Int = 0,
+    val tapColorDots: List<ColorDot> = emptyList(),
 
     val currentChallenge: Challenge? = null,
     val challengeEndsAtMs: Long = 0L,
@@ -23,4 +24,10 @@ data class GameState(
     val usedBoostInRun: Boolean = false,
     val reviveAvailable: Boolean = true,
     val didRevive: Boolean = false,
+)
+
+data class ColorDot(
+    val color: Challenge.TargetColor,
+    val nx: Float,   // 0..1
+    val ny: Float    // 0..1
 )
